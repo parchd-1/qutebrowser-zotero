@@ -1,0 +1,113 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+# Copyright: 2017 parchd <parchd@archlinux.info>
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+'''Userscript to connect qutebrowser to zotero'''
+
+from os import environ as e
+from requests import post, get, ReadTimeout, ConnectionError
+
+MAX_WAIT = 20
+
+zoteroapi = "http://127.0.0.1:23119/connector/"
+fifo = open(e["QUTE_FIFO"], "w")
+
+
+class NoTranslatorError(Exception):
+    '''Raise when no translator exists for the page'''
+
+
+class WrongResponseError(Exception):
+    '''Raise when we don't get the desired response'''
+    # Note: Zotero doesn't give any useful information at all if things go wrong. Almost every
+    # problem results in a 500 error, with no pointer as to specific issues.
+
+
+def postExpectedOrFail(endpoint, expect, data=None, headers=None, **kwargs):
+    if data:
+        r = post(zoteroapi + endpoint, data=data, headers=headers, timeout=MAX_WAIT)
+    else:
+        r = post(zoteroapi + endpoint, json=kwargs, headers=headers, timeout=MAX_WAIT)
+
+    if r.status_code != expect:
+        raise WrongResponseError
+
+    return r
+
+
+def detect(uri, html):
+    r = postExpectedOrFail("detect", 200, uri=uri, html=html)
+
+    try:
+        return r.json()[0]
+    except IndexError:
+        raise NoTranslatorError
+
+
+def savePage(uri, html, translatorID=None):
+    postExpectedOrFail("savePage", 201, uri=uri, html=html, translatorID=translatorID)
+
+
+def saveSnapshot(url, html):
+    postExpectedOrFail("saveSnapshot", 201, url=url, html=html)
+
+
+def bibimport(resource):
+    # Only exists in zotero 5.0? In any case, not used in this version but might convert to a plugin when the infrastructure exists,
+    # or bring back into this version when https://github.com/qutebrowser/qutebrowser/issues/2323 is fixed
+    postExpectedOrFail("import", data=resource, headers={"Content-Type": "application/x-bibtex"})
+
+
+# Qute stuff
+
+def notify(message):
+    print('message-info "{}"'.format(message), file=fifo)
+
+
+def notify_error(message):
+    print('message-error "{}"'.format(message), file=fifo)
+
+
+def main():
+
+    url = e["QUTE_URL"]
+    if e["QUTE_MODE"] == "hints":
+        html = get(url, headers={"User-Agent": e["QUTE_USER_AGENT"]}).content
+    else:  # I guess this must be command mode
+        fd = open(e["QUTE_HTML"])
+        html = fd.read()
+        fd.close()
+
+    try:
+        try:
+            translator = detect(url, html)
+            savePage(url, html, translator['translatorID'])
+            notify("Saved from {} to zotero".format(translator['label']))
+        except NoTranslatorError:
+            saveSnapshot(url, html)
+            notify("Saved snapshot to zotero")
+
+    except ConnectionError:
+        notify_error("Zotero not available")
+    except WrongResponseError:
+        notify_error("Zotero didn't give the expected response")
+    except ReadTimeout:
+        notify_error("Zotero took too long to respond")
+
+
+if __name__ == "__main__":
+    main()
