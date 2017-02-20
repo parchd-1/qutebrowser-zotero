@@ -66,6 +66,10 @@ def saveSnapshot(url, html):
     postExpectedOrFail("saveSnapshot", 201, url=url, html=html)
 
 
+def savePdf(url):
+    postExpectedOrFail("saveSnapshot", 201, url=url, pdf=True)
+
+
 def bibimport(resource):
     # Only exists in zotero 5.0? In any case, not used in this version but might convert to a plugin when the infrastructure exists,
     # or bring back into this version when https://github.com/qutebrowser/qutebrowser/issues/2323 is fixed
@@ -85,21 +89,30 @@ def notify_error(message):
 def main():
 
     url = e["QUTE_URL"]
+    pdf = False  # start by assuming we're getting html
+
     if e["QUTE_MODE"] == "hints":
-        html = get(url, headers={"User-Agent": e["QUTE_USER_AGENT"]}).content
+        r = get(url, headers={"User-Agent": e["QUTE_USER_AGENT"]})
+        html = r.content
+        pdf = r.headers['Content-Type'].endswith('pdf')
+
     else:  # I guess this must be command mode
         fd = open(e["QUTE_HTML"])
         html = fd.read()
         fd.close()
 
     try:
-        try:
-            translator = detect(url, html)
-            savePage(url, html, translator['translatorID'])
-            notify("Saved from {} to zotero".format(translator['label']))
-        except NoTranslatorError:
-            saveSnapshot(url, html)
-            notify("Saved snapshot to zotero")
+        if pdf:
+                savePdf(url)
+                notify("Saved pdf to zotero")
+        else:
+            try:
+                translator = detect(url, html)
+                savePage(url, html, translator['translatorID'])
+                notify("Saved from {} to zotero".format(translator['label']))
+            except NoTranslatorError:
+                saveSnapshot(url, html)
+                notify("Saved snapshot to zotero")
 
     except ConnectionError:
         notify_error("Zotero not available")
