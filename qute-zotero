@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # Copyright: 2017 parchd <parchd@archlinux.info>
@@ -92,7 +92,10 @@ def main():
     pdf = False  # start by assuming we're getting html
 
     if e["QUTE_MODE"] == "hints":
-        r = get(url, headers={"User-Agent": e["QUTE_USER_AGENT"]})
+        if "QUTE_USER_AGENT" in e:
+            r = get(url, headers={"User-Agent": e["QUTE_USER_AGENT"]})
+        else:
+            r = get(url, headers={})
         html = r.content
         pdf = r.headers['Content-Type'].endswith('pdf')
 
